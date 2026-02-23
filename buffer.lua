@@ -3,8 +3,8 @@ function create_buffer_window(prompt, callback)
 	local utils = require("utils")
  
     -- Define the popup window size and position
-    local width = 80
-    local height = 3
+    local width = math.floor(vim.o.columns) - 6
+    local height = 10
     local row = math.floor(vim.o.lines / 2) - math.floor(height / 2)
     local col = math.floor(vim.o.columns / 2) - math.floor(width / 2)
     

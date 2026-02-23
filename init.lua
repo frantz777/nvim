@@ -1,15 +1,38 @@
 -- Basic settings
+local USER = os.getenv("USER") 
 vim.opt.hlsearch = true
 vim.opt.number = true
 vim.opt.syntax = "on"
 vim.opt.relativenumber = true
 vim.opt.mouse = "a"
+--vim.cmd("colo ron")
+vim.cmd("syntax enable")
 --vim.opt.path:append "**"
 vim.opt.wildmenu = true
 vim.g.mapleader = " "
 -- use nvim-tree instead
-vim.o.grepprg = 'grep -HRin $* .'
+vim.o.grepprg = 'grep -HRiIn $* .'
 vim.keymap.set('n','<Leader>gg',':copen | :silent :grep ')
+vim.keymap.set('n','<Leader>w',':w<CR>')
+vim.keymap.set('n','<Leader>q',':q<CR>')
+vim.keymap.set('n','<Leader>x',':x<CR>')
+vim.keymap.set('n','cp',':cprev <CR>',{ noremap = true, silent = true })
+vim.keymap.set('n','cn',':cnext <CR>',{ noremap = true, silent = true })
+vim.keymap.set('n','<Leader>s',':source % <CR>',{noremap = true, silent = true })
+--vim.keymap.del('n','q:','<nop>',{ noremap = true, silent = true })
+vim.keymap.set("n", "q:", "<nop>", { noremap = true, silent = true })
+vim.keymap.set('n','<Leader>m',':make!<CR>')
+vim.opt.makeprg = "g++ -Wall -Wextra -g %"
+
+-- Optional: open quickfix automatically after :make
+vim.api.nvim_create_autocmd("QuickFixCmdPost", {
+  pattern = "make",
+  callback = function()
+    if #vim.fn.getqflist() > 0 then
+      vim.cmd("copen")
+    end
+  end,
+})
 
 -- Use system clipboard
 vim.opt.clipboard:append({ "unnamed", "unnamedplus" })
@@ -53,11 +76,15 @@ vim.api.nvim_set_keymap('n', '-', '$', { noremap = true, silent = true })
 vim.api.nvim_set_keymap('v', '-', '$', { noremap = true, silent = true })
 -- Save current file and execute :luafile %
 vim.api.nvim_set_keymap('n', '<Leader>l', ':w<CR>:luafile %<CR>', { noremap = true, silent = true })
-script_dir = '/home/zoro/.config/nvim/?.lua'
+vim.api.nvim_set_keymap('n', '<Leader>w', ':w<CR>',{ noremap = true, silent = true })
+vim.api.nvim_set_keymap('n', '<Leader>x', ':x<CR>',{ noremap = true, silent = true })
+script_dir = '/home/'.. USER .. '/.config/nvim/?.lua'
 package.path = package.path .. ";" .. script_dir 
  
 require('buffer')
 require('fileFinder')
+require('popTerm')
+require('liveGrep')
 
 -- Simple function to attach LSP
 local function on_attach(client, bufnr)
@@ -71,7 +98,7 @@ local function start_cpp_lsp()
     if clangd_path ~= "" then
         vim.lsp.start({
             name = "clangd",
-            cmd = { clangd_path },
+            cmd = { clangd_path,"--log=verbose"}, 
             on_attach = on_attach,
         })
     else
@@ -81,7 +108,7 @@ end
 
 -- Start python lsp for py files
 local function start_py_lsp()
-    local pyLsp_path = vim.fn.exepath("/home/zoro/myPythonLsp/bin/python3.12")
+    local pyLsp_path = vim.fn.exepath("/home/".. USER .. "/myPythonLsp/bin/python3.12")
     if pyLsp_path ~= "" then
         vim.lsp.start({
             name = "pylsp",
@@ -93,12 +120,11 @@ local function start_py_lsp()
     end
 end
 
-
 -- Autocommand for C++ files
-vim.api.nvim_create_autocmd("FileType", {
-    pattern = "cpp",
-    callback = start_cpp_lsp,})
-
+--vim.api.nvim_create_autocmd("FileType", {
+--    pattern = "cpp",
+--    callback = start_cpp_lsp,})
+    
 -- Autocommand for Python files
 vim.api.nvim_create_autocmd("FileType", {
     pattern = "py",
