@@ -23,7 +23,8 @@ local function live_grep()
     local row        = math.floor(vim.o.lines / 2) - math.floor(height / 2)
 
     MAX_LINES_TO_LOAD = 200
-
+    FNAME_WIDTH = 35
+    ENABLE_DEBUG = nil
     -- STATE
     results          = {}
     results.filename = {}
@@ -130,6 +131,9 @@ local function live_grep()
 
         -- highlight current line
         vim.api.nvim_buf_add_highlight( output_buf, selection_ns, "Visual", current_index - 1, 0, -1)
+        if ENABLE_DEBUG then
+            logger.log("seting cursor 134, current_index: " .. current_index)
+        end
 
         -- move cursor to selected line
         vim.api.nvim_win_set_cursor(output_win, { current_index, 0 })
@@ -159,6 +163,10 @@ local function live_grep()
         end
         vim.api.nvim_buf_clear_namespace(prev_buf, highlight_prev_ns, 0, -1)
         vim.api.nvim_buf_add_highlight(prev_buf,highlight_prev_ns,"Visual",lnum-1,0,-1)
+
+        if ENABLE_DEBUG then
+            logger.log("setting lnum: ".. lnum)
+        end
         vim.api.nvim_win_set_cursor(prev_win, {lnum , 0})
         vim.api.nvim_win_set_option(prev_win, 'winbar', fname)
 
@@ -184,21 +192,25 @@ local function live_grep()
             vim.fn.jobstop(current_job)
             current_job = nil
         end
-        --[[
-        logger.log('#######################################################################')
-        logger.log('########################### Starting new Grep #########################')
-        logger.log('#######################################################################')
-        ]]
+        if ENABLE_DEBUG then
+            logger.log('#######################################################################')
+            logger.log('########################### Starting new Grep #########################')
+            logger.log('#######################################################################')
+        end
         vim.api.nvim_buf_set_option(output_buf, "modifiable", true)
         vim.api.nvim_buf_set_lines(output_buf, 0, -1, false, {})
 
         local cmd = { "grep", "-HRsiIn" , "-m 10", "--exclude-dir=.local", "--exclude-dir=.cache","--exclude=*.log", query, SEARCH_ROOT, }
         local stdout_data = {}
-        --logger.log("###CMD###: " ..table.concat(cmd),',')
+        if ENABLE_DEBUG then 
+            logger.log("###CMD###: " ..table.concat(cmd),',')
+        end
         local line_insert = -1 
         current_job = vim.fn.jobstart(cmd, { stdout_buffered = false,
             on_stderr = function(job_id, data, event)
-                --logger.log("stderr: " .. data[1] )--table.concat(data,'\n'))
+                if ENABLE_DEBUG then
+                    logger.log("stderr: " .. data[1] )--table.concat(data,'\n'))
+                end
             end,
             --]]--
             on_stdout = function(_, data)
@@ -210,52 +222,54 @@ local function live_grep()
 
                     local win_width = vim.api.nvim_win_get_width(output_win) 
                     for _, line in ipairs(data) do
-                        --logger.log("Line in data: " .. line)
+
+                        if ENABLE_DEBUG then
+                            logger.log("Line in data: " .. line)
+                        end
                         if line ~= "" then
                             -- parse + append ONE LINE at a time
                             local filename, lnum, text = line:match("^(.-):(%d+):(.*)$")
 
                             if filename then
-                                --[[
-                                --limit width of line to see text
-                                if #line > win_width then
-                                    line = string.sub(line, #line - width + 2)
-                                    --print(#line)
-                                end]]
-
                                 local short = vim.fn.fnamemodify(filename, ":.")
 
                                 -- clamp filename width
-                                local fname_width = 35
-                                if #short > fname_width then
-                                    short = "…" .. short:sub(#short - fname_width + 2)
+                                if #short > FNAME_WIDTH  then
+                                    short = "…" .. short:sub(#short - FNAME_WIDTH + 2)
                                 end
 
                                 local line_display = string.format(
-                                    "%-" .. fname_width .. "s %4d | %s",
+                                    "%-" .. FNAME_WIDTH .. "s %4d | %s",
                                     short,
                                     lnum,
                                     text
                                 )
                                 table.insert(results.filename, filename)
                                 table.insert(results.line_num, tonumber(lnum))
-                                table.insert(results.text, display)                     
+                                table.insert(results.text, line_display)                     
 
                                 if #results.filename > MAX_LINES_TO_LOAD then 
+                                    if current_job then
+                                        vim.fn.jobstop(current_job)
+                                        current_job = nil
+                                    end
                                     break
                                 end
                             end
                         end
                     end
-                    --[[
-                    for idx, line in ipairs(results.text) do
-                        logger.log("results.text: " .. line .. " results.line_num: " .. results.line_num[idx] )
+                    if ENABLE_DEBUG then
+                        for idx, line in ipairs(results.text) do
+                            logger.log("results.text: " .. line .. " results.line_num: " .. results.line_num[idx] )
+                        end
                     end
-                    ]]
                     vim.api.nvim_buf_set_option(output_buf, "modifiable", true)
                     vim.api.nvim_buf_set_lines(output_buf, 0, -1, false, results.text)
                     vim.api.nvim_buf_clear_namespace(output_buf, highlight_ns, 0, -1)
-
+                    
+                    if ENABLE_DEBUG then
+                        logger.log("added 262 #results.text: " .. #results.text) 
+                    end
                     for i = 1, #results.text do
                         local line = results.text[i]
                         local fname = results.filename[i]
@@ -263,7 +277,7 @@ local function live_grep()
 
                         local short = vim.fn.fnamemodify(fname, ":.")
                         --local prefix = string.format("%s:%d | ", short, lnum)
-                        local prefix = string.format( "%-" .. fname_width .. "s %4d | ", short, lnum)
+                        local prefix = string.format( "%-" .. FNAME_WIDTH .. "s %4d | ", short, lnum)
 
                         -- highlight filename
                         vim.api.nvim_buf_add_highlight( output_buf, highlight_ns, "LiveGrepFilename", i - 1, 0, #short)
