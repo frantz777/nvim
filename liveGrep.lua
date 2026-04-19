@@ -10,6 +10,8 @@ local function live_grep()
     local update_preview
     local close_all
     local run_grep_async
+    vim.api.nvim_set_hl(0, "LiveGrepFilename", { fg = "#61afef", bold = true })
+    vim.api.nvim_set_hl(0, "LiveGrepMatch", { bg = "#3e4452", fg = "#ffffff" })
 
     --logger.log('starting live_grep')
 
@@ -29,8 +31,9 @@ local function live_grep()
     results.text     = {}
         
     local current_index = 1
+    local selection_ns = vim.api.nvim_create_namespace("live_grep_selection")
     local highlight_ns  = vim.api.nvim_create_namespace("live_grep_highlight")
-    local highlight_prev_ns  = vim.api.nvim_create_namespace("live_grep_highlight")
+    local highlight_prev_ns  = vim.api.nvim_create_namespace("live_grep_prev_highlight")
     local current_job   = nil
 
     -- CREATE BUFFERS
@@ -71,9 +74,6 @@ local function live_grep()
             local query = input:sub(3)
             run_grep_async(query)
 
-            -- Clear old highlights
-            vim.api.nvim_buf_clear_namespace(output_buf, highlight_ns, 0, -1)
-
             if #results.filename > 0 then
                 move_selection(0)
             end
@@ -113,24 +113,27 @@ local function live_grep()
             vim.api.nvim_win_close(input_win, true)
         end
     end
-
-    -- MOVE SELECTION
     move_selection = function(delta)
-        
+
         if #results.filename == 0 then return end
 
         current_index = current_index + delta
+
         if current_index < 1 then
             current_index = 1
         elseif current_index > #results.filename then
             current_index = #results.filename
         end
 
+        -- ONLY clear selection highlight (NOT all highlights)
+        vim.api.nvim_buf_clear_namespace(output_buf, selection_ns, 0, -1)
 
-        vim.api.nvim_buf_clear_namespace(output_buf, highlight_ns, 0, -1)
-        vim.api.nvim_buf_add_highlight(output_buf,highlight_ns,"Visual",current_index-1,0,-1)
-        local cursor_placement =0 -- #line
-        vim.api.nvim_win_set_cursor(output_win, { current_index,cursor_placement})
+        -- highlight current line
+        vim.api.nvim_buf_add_highlight( output_buf, selection_ns, "Visual", current_index - 1, 0, -1)
+
+        -- move cursor to selected line
+        vim.api.nvim_win_set_cursor(output_win, { current_index, 0 })
+
         update_preview()
     end
 
@@ -157,7 +160,6 @@ local function live_grep()
         vim.api.nvim_buf_clear_namespace(prev_buf, highlight_prev_ns, 0, -1)
         vim.api.nvim_buf_add_highlight(prev_buf,highlight_prev_ns,"Visual",lnum-1,0,-1)
         vim.api.nvim_win_set_cursor(prev_win, {lnum , 0})
-        --vim.api.nvim_win_set_title(prev_win, fname)
         vim.api.nvim_win_set_option(prev_win, 'winbar', fname)
 
 
@@ -214,18 +216,19 @@ local function live_grep()
                             local filename, lnum, text = line:match("^(.-):(%d+):(.*)$")
 
                             if filename then
-                                --local short = vim.fn.fnamemodify(filename, ":.")
-                                --local display_line = string.format("%s:%d | %s", short, lnum, text)
+                                --[[
+                                --limit width of line to see text
                                 if #line > win_width then
                                     line = string.sub(line, #line - width + 2)
                                     --print(#line)
-                                end
-                     
-                                table.insert(results.filename,filename)
-                                table.insert(results.line_num,tonumber(lnum))
-                                table.insert(results.text,line)
-                                --table.insert(results,display_line)
---                                local numlines = vim.api.nvim_buf_get_lines(output_buf, 0, -1, false)
+                                end]]
+
+                                local short = vim.fn.fnamemodify(filename, ":.")
+                                local display = string.format("%s:%s | %s", short, lnum, text)
+
+                                table.insert(results.filename, filename)
+                                table.insert(results.line_num, tonumber(lnum))
+                                table.insert(results.text, display)                     
 
                                 if #results.filename > MAX_LINES_TO_LOAD then 
                                     break
@@ -239,11 +242,30 @@ local function live_grep()
                     end
                     ]]
                     vim.api.nvim_buf_set_option(output_buf, "modifiable", true)
-                    vim.api.nvim_buf_set_lines(output_buf,
-                                               0,
-                                               -1,
-                                               false,
-                                               results.text)
+                    vim.api.nvim_buf_set_lines(output_buf, 0, -1, false, results.text)
+                    vim.api.nvim_buf_clear_namespace(output_buf, highlight_ns, 0, -1)
+
+                    for i = 1, #results.text do
+                        local line = results.text[i]
+                        local fname = results.filename[i]
+                        local lnum  = results.line_num[i]
+
+                        local short = vim.fn.fnamemodify(fname, ":.")
+                        local prefix = string.format("%s:%d | ", short, lnum)
+
+                        -- highlight filename
+                        vim.api.nvim_buf_add_highlight( output_buf, highlight_ns, "LiveGrepFilename", i - 1, 0, #short)
+
+                        -- highlight match (plain search)
+                        local text_part = line:sub(#prefix + 1)
+                        local start_col = text_part:lower():find(query:lower(), 1, true)
+
+                        if start_col then
+                            local start = #prefix + start_col - 1
+                            local finish = start + #query
+                            vim.api.nvim_buf_add_highlight( output_buf, highlight_ns, "LiveGrepMatch", i - 1, start, finish)
+                        end
+                    end
                     vim.api.nvim_buf_set_option(output_buf, "modifiable", false)
                     move_selection(0)
 
