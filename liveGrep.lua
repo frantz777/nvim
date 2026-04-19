@@ -224,8 +224,19 @@ local function live_grep()
                                 end]]
 
                                 local short = vim.fn.fnamemodify(filename, ":.")
-                                local display = string.format("%s:%s | %s", short, lnum, text)
 
+                                -- clamp filename width
+                                local fname_width = 35
+                                if #short > fname_width then
+                                    short = "…" .. short:sub(#short - fname_width + 2)
+                                end
+
+                                local line_display = string.format(
+                                    "%-" .. fname_width .. "s %4d | %s",
+                                    short,
+                                    lnum,
+                                    text
+                                )
                                 table.insert(results.filename, filename)
                                 table.insert(results.line_num, tonumber(lnum))
                                 table.insert(results.text, display)                     
@@ -251,7 +262,8 @@ local function live_grep()
                         local lnum  = results.line_num[i]
 
                         local short = vim.fn.fnamemodify(fname, ":.")
-                        local prefix = string.format("%s:%d | ", short, lnum)
+                        --local prefix = string.format("%s:%d | ", short, lnum)
+                        local prefix = string.format( "%-" .. fname_width .. "s %4d | ", short, lnum)
 
                         -- highlight filename
                         vim.api.nvim_buf_add_highlight( output_buf, highlight_ns, "LiveGrepFilename", i - 1, 0, #short)
