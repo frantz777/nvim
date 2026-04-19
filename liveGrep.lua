@@ -11,7 +11,7 @@ local function live_grep()
     local close_all
     local run_grep_async
 
-    logger.log('starting live_grep')
+    --logger.log('starting live_grep')
 
     --local SEARCH_ROOT = "/home/zoro/CPPStuff/"
     local SEARCH_ROOT = "."
@@ -21,9 +21,14 @@ local function live_grep()
     local row        = math.floor(vim.o.lines / 2) - math.floor(height / 2)
 
     -- STATE
-    local results       = {}
+    results          = {}
+    results.filename = {}
+    results.line_num = {}
+    results.text     = {}
+        
     local current_index = 1
     local highlight_ns  = vim.api.nvim_create_namespace("live_grep_highlight")
+    local highlight_prev_ns  = vim.api.nvim_create_namespace("live_grep_highlight")
     local current_job   = nil
 
     -- CREATE BUFFERS
@@ -63,13 +68,11 @@ local function live_grep()
             local input = vim.api.nvim_get_current_line()
             local query = input:sub(3)
             run_grep_async(query)
-            --results, display_lines = update_results(query)
-            current_index = 1
 
             -- Clear old highlights
             vim.api.nvim_buf_clear_namespace(output_buf, highlight_ns, 0, -1)
 
-           if #results > 0 then
+            if #results.filename > 0 then
                 move_selection(0)
             end
         end, })
@@ -88,11 +91,12 @@ local function live_grep()
     vim.keymap.set({"n","i"}, "<C-k>", function() move_selection(-1) end, { buffer = input_buf })
 
     vim.keymap.set("i", "<Enter>", function()
-        if #results == 0 then return end
-        local entry = results[current_index]
+        if #results.filename == 0 then return end
+        local fname = results.filename[current_index]
+        local lnum = results.line_num[current_index]
         close_all()
-        vim.cmd("edit " .. entry.filename)
-        vim.api.nvim_win_set_cursor(0, { entry.lnum, 0 })
+        vim.cmd("edit " .. fname)
+        vim.api.nvim_win_set_cursor(0, { lnum, 0 })
     end, { buffer = input_buf })
 
     -- CLOSE FUNCTION
@@ -111,45 +115,60 @@ local function live_grep()
     -- MOVE SELECTION
     move_selection = function(delta)
         
-        logger.log("move_selection: " .. delta .. " current_index " .. current_index .. " #results: " .. #results)
-        if #results == 0 then return end
+        if #results.filename == 0 then return end
 
         current_index = current_index + delta
         if current_index < 1 then
             current_index = 1
-        elseif current_index > #results then
-            current_index = #results
+        elseif current_index > #results.filename then
+            current_index = #results.filename
         end
 
-        vim.api.nvim_buf_clear_namespace(output_buf, highlight_ns, 0, -1)
-        vim.api.nvim_buf_add_highlight( output_buf,highlight_ns,"Visual",current_index - 1,0,-1)
-        vim.api.nvim_win_set_cursor(output_win, { current_index, 0 })
 
+        vim.api.nvim_buf_clear_namespace(output_buf, highlight_ns, 0, -1)
+        vim.api.nvim_buf_add_highlight(output_buf,highlight_ns,"Visual",current_index-1,0,-1)
+        local cursor_placement =0 -- #line
+        vim.api.nvim_win_set_cursor(output_win, { current_index,cursor_placement})
         update_preview()
     end
 
     -- UPDATE PREVIEW
     update_preview = function()
-        if #results == 0 then return end
+        if #results.line_num == 0 then return end
 
-        local entry = results[current_index]
-        local lines = vim.fn.readfile(entry.filename)
+        local fname = results.filename[current_index]
+        local lnum  = results.line_num[current_index]
+        local success, lines = pcall(vim.fn.readfile,fname)
+        if not success then
+            return 
+        end
 
         vim.api.nvim_buf_set_option(prev_buf, "modifiable", true)
         vim.api.nvim_buf_set_lines(prev_buf, 0, -1, false, lines)
         vim.api.nvim_buf_set_option(prev_buf, "modifiable", false)
 
         -- Detect and set filetype
-        local ft = vim.filetype.match({ filename = entry.filename })
+        local ft = vim.filetype.match({ filename = fname })
         if ft then
             vim.bo[prev_buf].filetype = ft
         end
-        vim.api.nvim_win_set_cursor(prev_win, { entry.lnum, 0 })
+        vim.api.nvim_buf_clear_namespace(prev_buf, highlight_prev_ns, 0, -1)
+        vim.api.nvim_buf_add_highlight(prev_buf,highlight_prev_ns,"Visual",lnum-1,0,-1)
+        vim.api.nvim_win_set_cursor(prev_win, {lnum , 0})
+        --vim.api.nvim_win_set_title(prev_win, fname)
+        vim.api.nvim_win_set_option(prev_win, 'winbar', fname)
+
+
     end
 
     run_grep_async = function(query)
+        -- clear old results
+        results = {}
+        results.filename= {}
+        results.line_num = {}
+        results.text = {}
+        
         if query == "" then
-            results = {}
             vim.api.nvim_buf_set_option(output_buf, "modifiable", true)
             vim.api.nvim_buf_set_lines(output_buf, 0, -1, false, {})
             vim.api.nvim_buf_set_option(output_buf, "modifiable", false)
@@ -161,40 +180,73 @@ local function live_grep()
             vim.fn.jobstop(current_job)
             current_job = nil
         end
+        --[[
+        logger.log('#######################################################################')
+        logger.log('########################### Starting new Grep #########################')
+        logger.log('#######################################################################')
+        ]]
+        vim.api.nvim_buf_set_option(output_buf, "modifiable", true)
+        vim.api.nvim_buf_set_lines(output_buf, 0, -1, false, {})
 
-        local cmd = { "grep", "-HRsiInE", "--exclude-dir", ".cache", query, SEARCH_ROOT, }
+        local cmd = { "grep", "-HRsiIn" , "-m 10", "--exclude-dir=.local", "--exclude-dir=.cache","--exclude=*.log", query, SEARCH_ROOT, }
         local stdout_data = {}
-
+        --logger.log("###CMD###: " ..table.concat(cmd),',')
+        local line_insert = -1 
         current_job = vim.fn.jobstart(cmd, { stdout_buffered = false,
+            on_stderr = function(job_id, data, event)
+                --logger.log("stderr: " .. data[1] )--table.concat(data,'\n'))
+            end,
+            --]]--
             on_stdout = function(_, data)
-                if not data then return end
+                if not data then
+                    return 
+                end
 
                 vim.schedule(function()
-                    vim.api.nvim_buf_set_option(output_buf, "modifiable", true)
 
+                    local win_width = vim.api.nvim_win_get_width(output_win) 
                     for _, line in ipairs(data) do
-                        logger.log(line)
+                        --logger.log("Line in data: " .. line)
                         if line ~= "" then
                             -- parse + append ONE LINE at a time
                             local filename, lnum, text = line:match("^(.-):(%d+):(.*)$")
 
                             if filename then
-                                local short = vim.fn.fnamemodify(filename, ":.")
-                                local display_line = string.format("%s:%d | %s", short, lnum, text)
+                                --local short = vim.fn.fnamemodify(filename, ":.")
+                                --local display_line = string.format("%s:%d | %s", short, lnum, text)
+                                if #line > win_width then
+                                    line = string.sub(line, #line - width + 2)
+                                    --print(#line)
+                                end
+                     
+                                table.insert(results.filename,filename)
+                                table.insert(results.line_num,tonumber(lnum))
+                                table.insert(results.text,line)
+                                --table.insert(results,display_line)
+--                                local numlines = vim.api.nvim_buf_get_lines(output_buf, 0, -1, false)
 
-                                vim.api.nvim_buf_set_lines(output_buf,
-                                                           -1,
-                                                           -1,
-                                                           false,
-                                                           { display_line })
                             end
                         end
                     end
+                    --[[
+                    for idx, line in ipairs(results.text) do
+                        logger.log("results.text: " .. line .. " results.line_num: " .. results.line_num[idx] )
+                    end
+                    ]]
+                    vim.api.nvim_buf_set_option(output_buf, "modifiable", true)
+                    vim.api.nvim_buf_set_lines(output_buf,
+                                               0,
+                                               -1,
+                                               false,
+                                               results.text)
                     vim.api.nvim_buf_set_option(output_buf, "modifiable", false)
+                    move_selection(0)
+
                 end)
             end
         })
     end
+
 end
 
 _G.live_grep = live_grep
