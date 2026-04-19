@@ -20,6 +20,8 @@ local function live_grep()
     local center_col = math.floor(vim.o.columns / 2)
     local row        = math.floor(vim.o.lines / 2) - math.floor(height / 2)
 
+    MAX_LINES_TO_LOAD = 200
+
     -- STATE
     results          = {}
     results.filename = {}
@@ -225,6 +227,9 @@ local function live_grep()
                                 --table.insert(results,display_line)
 --                                local numlines = vim.api.nvim_buf_get_lines(output_buf, 0, -1, false)
 
+                                if #results.filename > MAX_LINES_TO_LOAD then 
+                                    break
+                                end
                             end
                         end
                     end
