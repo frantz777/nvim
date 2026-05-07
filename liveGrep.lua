@@ -6,10 +6,14 @@ local function live_grep()
     package.path = package.path .. ";" .. script_dir 
 	   
     local logger = require('logHelper')
+   
+    print(logger)
+
     local move_selection
     local update_preview
     local close_all
     local run_grep_async
+    local parse_input
     vim.api.nvim_set_hl(0, "LiveGrepFilename", { fg = "#61afef", bold = true })
     vim.api.nvim_set_hl(0, "LiveGrepMatch", { bg = "#3e4452", fg = "#ffffff" })
 
@@ -51,6 +55,9 @@ local function live_grep()
 
     local input_win = vim.api.nvim_open_win(input_buf, true, 
     { relative = "editor", width = width * 2 + 2, height = 1, row = row - 3, col = center_col - width, style = "minimal", border = "rounded", })
+
+    --FNAME_WIDTH  = vim.api.nvim_win_get_width(output_win) 
+    --print(FNAME_WIDTH)
 
     -- BUFFER SETTINGS
     vim.api.nvim_buf_set_option(output_buf, "modifiable", false)
@@ -173,6 +180,21 @@ local function live_grep()
 
     end
 
+    parse_input = function(query)
+        local pattern = "%-%-"
+
+        -- string.find returns the start and end indices of the pattern
+        local start_idx, end_idx = string.find(query, pattern)
+        local filetype = ""
+        if end_idx then
+            -- Extract from the character immediately following the pattern
+            filetype = string.sub(query, end_idx + 1)
+            query = string.sub(query, 1, start_idx-1)
+            print("start_idx: " .. start_idx .. " end_idx: " .. end_idx .. " filetype: " .. filetype .. " pat: " .. query)
+        end
+        return query, filetype 
+    end
+   
     run_grep_async = function(query)
         -- clear old results
         results = {}
@@ -186,12 +208,15 @@ local function live_grep()
             vim.api.nvim_buf_set_option(output_buf, "modifiable", false)
             return
         end
-
+        local file_type = "" 
+        query, file_type = parse_input(query)
+        local inc_file_type =  "--include=*" .. file_type
         -- Kill previous job if still running
         if current_job then
             vim.fn.jobstop(current_job)
             current_job = nil
         end
+
         if ENABLE_DEBUG then
             logger.log('#######################################################################')
             logger.log('########################### Starting new Grep #########################')
@@ -200,7 +225,8 @@ local function live_grep()
         vim.api.nvim_buf_set_option(output_buf, "modifiable", true)
         vim.api.nvim_buf_set_lines(output_buf, 0, -1, false, {})
 
-        local cmd = { "grep", "-HRsiIn" , "-m 10", "--exclude-dir=.local", "--exclude-dir=.cache","--exclude=*.log", query, SEARCH_ROOT, }
+
+        local cmd = { "grep", "-HRsiIn" , "-m 10", "--exclude-dir=.local", "--exclude-dir=.cache","--exclude=*.log", inc_file_type , query, SEARCH_ROOT, }
         local stdout_data = {}
         if ENABLE_DEBUG then 
             logger.log("###CMD###: " ..table.concat(cmd),',')
@@ -220,7 +246,6 @@ local function live_grep()
 
                 vim.schedule(function()
 
-                    local win_width = vim.api.nvim_win_get_width(output_win) 
                     for _, line in ipairs(data) do
 
                         if ENABLE_DEBUG then
