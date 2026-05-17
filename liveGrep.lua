@@ -28,7 +28,7 @@ local function live_grep()
 
     MAX_LINES_TO_LOAD = 200
     FNAME_WIDTH = 35
-    ENABLE_DEBUG = nil
+    ENABLE_DEBUG = true
     -- STATE
     results          = {}
     results.filename = {}
@@ -78,6 +78,8 @@ local function live_grep()
     vim.api.nvim_create_autocmd("TextChangedI", {
         buffer = input_buf,
         callback = function()
+            local timestamp = os.time()
+            print(timestamp)
             local input = vim.api.nvim_get_current_line()
             local query = input:sub(3)
             run_grep_async(query)
@@ -190,7 +192,7 @@ local function live_grep()
             -- Extract from the character immediately following the pattern
             filetype = string.sub(query, end_idx + 1)
             query = string.sub(query, 1, start_idx-1)
-            print("start_idx: " .. start_idx .. " end_idx: " .. end_idx .. " filetype: " .. filetype .. " pat: " .. query)
+            --print("start_idx: " .. start_idx .. " end_idx: " .. end_idx .. " filetype: " .. filetype .. " pat: " .. query)
         end
         return query, filetype 
     end
@@ -224,9 +226,51 @@ local function live_grep()
         end
         vim.api.nvim_buf_set_option(output_buf, "modifiable", true)
         vim.api.nvim_buf_set_lines(output_buf, 0, -1, false, {})
-
-
-        local cmd = { "grep", "-HRsiIn" , "-m 10", "--exclude-dir=.local", "--exclude-dir=.cache","--exclude=*.log", inc_file_type , query, SEARCH_ROOT, }
+--        local escapedQuery = vim.fn.shellescape(query)
+        --[[
+        local cmd = {  "sh", "-c",
+                       "find",
+                       SEARCH_ROOT,
+                       "-type", "f",
+                       "!", "-path", "\"*/.git/*\"",
+                       "!", "-path", "\"*/.cache/*\"",
+                       "!", "-path", "\"*/.build/*\"", 
+                       "!", "-path", "\"*/logs/*\"",
+                       "!", "-path", "\"*/node_modules/*\"",
+                       "|", "xargs", "grep", "-HsiIn", "-m","10",escapedQuery}
+                       ]]
+        local cmd = {
+            "sh",
+            "-c",
+            string.format(
+                [[find %s \
+                    -type f \
+                    ! -path "*/.git/*" \
+                    ! -path "*/.cache/*" \
+                    ! -path "*/build/*" \
+                    ! -path "*/node_modules/*" \
+                    | xargs grep -HnsI -m 10 "%s"]],
+                --inc_file_type,
+                SEARCH_ROOT,
+                query
+            )
+        }
+        print(cmd)
+        --[[
+        local cmd = {"sh", "-c",
+                    string.format(
+                    [[find %s \
+                    -type f \
+                    ! -path "*/.git/*" \
+                    ! -path "*/.cache/*" \
+                    ! -path "*/build/*" \
+                    ! -path "*/node_modules/*" \
+                    ]]
+                    --| xargs grep -HnI -m 10 "%s"]],
+              --      SEARCH_ROOT,
+                --    escapedQuery)} 
+        --]]
+--        local cmd = { "grep", "-HRsiIn" , "-m 10", "--exclude-dir=.local", "--exclude-dir=.cache","--exclude=*.log", inc_file_type , query, SEARCH_ROOT, }
         local stdout_data = {}
         if ENABLE_DEBUG then 
             logger.log("###CMD###: " ..table.concat(cmd),',')
